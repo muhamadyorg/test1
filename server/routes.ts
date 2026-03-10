@@ -121,10 +121,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         "hikvision"
       );
 
-      // Only save events where attendance button was pressed (keldi/ketti)
+      // Save if: attendance button pressed (checkIn/checkOut) OR face/card/fp verified (verifyMode set)
+      // Reject pure system events with no person data (no verifyMode, no status, no employee, no name)
+      const verifyMode = (parsed.verifyMode || "").toLowerCase();
       const validStatuses = ["checkin", "checkout", "breakin", "breakout", "normal", "overtime", "other"];
-      if (!validStatuses.includes(status)) {
-        log(`Ignored: no attendance status (status="${status || "empty"}")`, "hikvision");
+      const hasStatus = validStatuses.includes(status);
+      const hasVerify = verifyMode.length > 0;
+      const hasPerson = !!(parsed.employeeNo || parsed.name);
+
+      if (!hasStatus && !hasVerify && !hasPerson) {
+        log(`Ignored: no person/verify data (status="${status||"empty"}", verifyMode="${verifyMode||"empty"}")`, "hikvision");
         return res.status(200).send("OK");
       }
 
