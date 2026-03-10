@@ -57,6 +57,14 @@ export class MemStorage implements IStorage {
     this.events = [];
   }
 
+  private resolveEventsForEmployee(employee: Employee): void {
+    for (let i = 0; i < this.events.length; i++) {
+      if (this.events[i].employeeNo === employee.employeeNo) {
+        this.events[i] = { ...this.events[i], resolvedName: employee.name };
+      }
+    }
+  }
+
   async addEmployee(data: InsertEmployee): Promise<Employee> {
     const employee: Employee = {
       ...data,
@@ -64,6 +72,7 @@ export class MemStorage implements IStorage {
       createdAt: new Date().toISOString(),
     };
     this.employees.push(employee);
+    this.resolveEventsForEmployee(employee);
     return employee;
   }
 
@@ -79,6 +88,7 @@ export class MemStorage implements IStorage {
     const idx = this.employees.findIndex(e => e.id === id);
     if (idx === -1) return undefined;
     this.employees[idx] = { ...this.employees[idx], ...data };
+    this.resolveEventsForEmployee(this.employees[idx]);
     return this.employees[idx];
   }
 
