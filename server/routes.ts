@@ -79,17 +79,16 @@ function parseHikvisionBody(rawBody: string, contentType: string) {
   }
 }
 
-// subEventType=75: access granted (face/card/fp authentication passed)
-// subEventType=76: access denied
-// Only save authentication events
+// Accept any AccessControllerEvent (majorEventType=5).
+// Different Hikvision firmware versions use different subEventType codes
+// (e.g. 66, 75, 1, 2...). Filtering by eventType is the most reliable approach.
+// Heartbeat, disk alarm, network events will have different eventType values.
 function isAuthEvent(parsed: Record<string, string | undefined>): boolean {
-  const sub = parsed.subEventType || "";
-  const hasEmployee = !!(parsed.employeeNo || parsed.name);
-  // Accept subType 75 (granted), OR event has employee data (some firmware omits subEventType)
-  const validSubTypes = ["75", "1", "2", "3", "4"];
-  if (validSubTypes.includes(sub)) return true;
-  if (hasEmployee && parsed.eventType?.includes("AccessController")) return true;
-  if (hasEmployee && sub === "") return true;
+  const eventType = (parsed.eventType || "").toLowerCase();
+  const major = parsed.majorEventType || "";
+  // Accept AccessControllerEvent (covers all face/card/fp authentication)
+  if (eventType.includes("accesscontroller")) return true;
+  if (major === "5") return true;
   return false;
 }
 
