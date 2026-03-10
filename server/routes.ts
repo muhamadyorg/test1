@@ -79,18 +79,6 @@ function parseHikvisionBody(rawBody: string, contentType: string) {
   }
 }
 
-// Accept any AccessControllerEvent (majorEventType=5).
-// Different Hikvision firmware versions use different subEventType codes
-// (e.g. 66, 75, 1, 2...). Filtering by eventType is the most reliable approach.
-// Heartbeat, disk alarm, network events will have different eventType values.
-function isAuthEvent(parsed: Record<string, string | undefined>): boolean {
-  const eventType = (parsed.eventType || "").toLowerCase();
-  const major = parsed.majorEventType || "";
-  // Accept AccessControllerEvent (covers all face/card/fp authentication)
-  if (eventType.includes("accesscontroller")) return true;
-  if (major === "5") return true;
-  return false;
-}
 
 let wss: WebSocketServer;
 
@@ -131,12 +119,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         `Event from ${req.ip} | sub=${parsed.subEventType || "-"} | emp=${parsed.employeeNo || "-"} | name=${parsed.name || "-"} | status=${parsed.attendanceStatus || "-"} | ${rawBody.length}B`,
         "hikvision"
       );
-
-      // Filter: only save authentication events (face/card recognized)
-      if (!isAuthEvent(parsed as Record<string, string | undefined>)) {
-        log(`Skipped non-auth event (sub=${parsed.subEventType || "none"})`, "hikvision");
-        return res.status(200).send("OK");
-      }
 
       const event = await storage.addEvent({
         ...parsed,
