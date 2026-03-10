@@ -18,6 +18,15 @@ function parseHikvisionBody(rawBody: string, contentType: string) {
     rawBody.trimStart().startsWith("<");
 
   if (isXml) {
+    // Try multiple field names for employee number
+    const employeeNo =
+      extractXml(rawBody, "employeeNoString") ||
+      extractXml(rawBody, "employeeNo") ||
+      extractXml(rawBody, "empNo") ||
+      extractXml(rawBody, "userID") ||
+      extractXml(rawBody, "userid") ||
+      extractXml(rawBody, "UserID");
+
     return {
       ipAddress: extractXml(rawBody, "ipAddress"),
       macAddress: extractXml(rawBody, "macAddress"),
@@ -28,7 +37,7 @@ function parseHikvisionBody(rawBody: string, contentType: string) {
       dateTime: extractXml(rawBody, "dateTime"),
       name: extractXml(rawBody, "name"),
       cardNo: extractXml(rawBody, "cardNo"),
-      employeeNo: extractXml(rawBody, "employeeNoString"),
+      employeeNo,
       cardType: extractXml(rawBody, "cardType"),
       attendanceStatus: extractXml(rawBody, "attendanceStatus"),
       door: extractXml(rawBody, "door"),
@@ -43,6 +52,8 @@ function parseHikvisionBody(rawBody: string, contentType: string) {
   try {
     const j = JSON.parse(rawBody);
     const ace = j.AccessControllerEvent || j.accessControllerEvent || {};
+    const employeeNo =
+      ace.employeeNoString || ace.employeeNo || ace.empNo || ace.userID || "";
     return {
       ipAddress: j.ipAddress || "",
       macAddress: j.macAddress || "",
@@ -53,7 +64,7 @@ function parseHikvisionBody(rawBody: string, contentType: string) {
       dateTime: j.dateTime || "",
       name: ace.name || "",
       cardNo: ace.cardNo || "",
-      employeeNo: ace.employeeNoString || "",
+      employeeNo,
       cardType: ace.cardType || "",
       attendanceStatus: ace.attendanceStatus || "",
       door: ace.door?.toString() || "",
@@ -66,6 +77,20 @@ function parseHikvisionBody(rawBody: string, contentType: string) {
   } catch {
     return {};
   }
+}
+
+// subEventType=75: access granted (face/card/fp authentication passed)
+// subEventType=76: access denied
+// Only save authentication events
+function isAuthEvent(parsed: Record<string, string | undefined>): boolean {
+  const sub = parsed.subEventType || "";
+  const hasEmployee = !!(parsed.employeeNo || parsed.name);
+  // Accept subType 75 (granted), OR event has employee data (some firmware omits subEventType)
+  const validSubTypes = ["75", "1", "2", "3", "4"];
+  if (validSubTypes.includes(sub)) return true;
+  if (hasEmployee && parsed.eventType?.includes("AccessController")) return true;
+  if (hasEmployee && sub === "") return true;
+  return false;
 }
 
 let wss: WebSocketServer;
@@ -100,9 +125,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         rawBody = JSON.stringify(req.body, null, 2);
       }
 
-      log(`Event from ${req.ip} | CT: ${contentType} | ${rawBody.length}B`, "hikvision");
-
       const parsed = parseHikvisionBody(rawBody, contentType);
+
+      // Log key fields for debugging
+      log(
+        `Event from ${req.ip} | sub=${parsed.subEventType || "-"} | emp=${parsed.employeeNo || "-"} | name=${parsed.name || "-"} | status=${parsed.attendanceStatus || "-"} | ${rawBody.length}B`,
+        "hikvision"
+      );
+
+      // Filter: only save authentication events (face/card recognized)
+      if (!isAuthEvent(parsed as Record<string, string | undefined>)) {
+        log(`Skipped non-auth event (sub=${parsed.subEventType || "none"})`, "hikvision");
+        return res.status(200).send("OK");
+      }
+
       const event = await storage.addEvent({
         ...parsed,
         rawBody: rawBody || "(empty body)",
@@ -111,9 +147,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (event) {
         broadcast({ type: "new_event", event });
-        log(`Saved event: ${event.resolvedName || event.name || event.employeeNo || "unknown"} — ${event.attendanceStatus}`, "hikvision");
+        log(`Saved: ${event.resolvedName || event.name || event.employeeNo || "unknown"} — ${event.attendanceStatus || "entry"}`, "hikvision");
       } else {
-        log(`Duplicate event skipped`, "hikvision");
+        log(`Duplicate skipped (${parsed.employeeNo || "unknown"})`, "hikvision");
       }
 
       res.status(200).send("OK");
