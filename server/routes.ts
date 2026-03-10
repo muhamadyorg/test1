@@ -115,10 +115,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const parsed = parseHikvisionBody(rawBody, contentType);
 
       // Log key fields for debugging
+      const status = (parsed.attendanceStatus || "").toLowerCase();
       log(
-        `Event from ${req.ip} | sub=${parsed.subEventType || "-"} | emp=${parsed.employeeNo || "-"} | name=${parsed.name || "-"} | status=${parsed.attendanceStatus || "-"} | ${rawBody.length}B`,
+        `Event from ${req.ip} | sub=${parsed.subEventType || "-"} | emp=${parsed.employeeNo || "-"} | name=${parsed.name || "-"} | status=${status || "-"} | ${rawBody.length}B`,
         "hikvision"
       );
+
+      // Only save events where attendance button was pressed (keldi/ketti)
+      const validStatuses = ["checkin", "checkout", "breakin", "breakout", "normal", "overtime", "other"];
+      if (!validStatuses.includes(status)) {
+        log(`Ignored: no attendance status (status="${status || "empty"}")`, "hikvision");
+        return res.status(200).send("OK");
+      }
 
       const event = await storage.addEvent({
         ...parsed,
