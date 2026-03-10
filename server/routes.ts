@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
+import { insertEmployeeSchema } from "@shared/schema";
 import { log } from "./index";
 
 function extractXml(xml: string, field: string): string {
@@ -73,18 +74,12 @@ function broadcast(data: object) {
   if (!wss) return;
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(msg);
-    }
+    if (client.readyState === WebSocket.OPEN) client.send(msg);
   });
 }
 
-export async function registerRoutes(
-  httpServer: Server,
-  app: Express
-): Promise<Server> {
+export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   wss = new WebSocketServer({ server: httpServer, path: "/ws" });
-
   wss.on("connection", (ws) => {
     log("WebSocket client connected", "ws");
     ws.on("close", () => log("WebSocket client disconnected", "ws"));
@@ -105,17 +100,21 @@ export async function registerRoutes(
         rawBody = JSON.stringify(req.body, null, 2);
       }
 
-      log(`Received event from ${req.ip} | CT: ${contentType} | size: ${rawBody.length}B`, "hikvision");
+      log(`Event from ${req.ip} | CT: ${contentType} | ${rawBody.length}B`, "hikvision");
 
       const parsed = parseHikvisionBody(rawBody, contentType);
-
       const event = await storage.addEvent({
         ...parsed,
         rawBody: rawBody || "(empty body)",
         contentType,
       });
 
-      broadcast({ type: "new_event", event });
+      if (event) {
+        broadcast({ type: "new_event", event });
+        log(`Saved event: ${event.resolvedName || event.name || event.employeeNo || "unknown"} — ${event.attendanceStatus}`, "hikvision");
+      } else {
+        log(`Duplicate event skipped`, "hikvision");
+      }
 
       res.status(200).send("OK");
     } catch (err) {
@@ -136,15 +135,13 @@ export async function registerRoutes(
   });
 
   app.post("/api/events/test", async (_req: Request, res: Response) => {
+    const employees = await storage.getEmployees();
+    const testEmployee = employees[0];
     const sampleXml = `<?xml version='1.0' encoding='utf-8'?>
 <EventNotificationAlert version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
   <ipAddress>192.168.1.65</ipAddress>
-  <portNo>80</portNo>
-  <protocol>HTTP</protocol>
   <macAddress>AA:BB:CC:DD:EE:FF</macAddress>
-  <channelID>1</channelID>
   <dateTime>${new Date().toISOString()}</dateTime>
-  <activePostCount>1</activePostCount>
   <eventType>AccessControllerEvent</eventType>
   <eventState>active</eventState>
   <eventDescription>Access Controller Event</eventDescription>
@@ -152,15 +149,13 @@ export async function registerRoutes(
     <deviceName>DS-K1T343EFWX - Kirish eshigi</deviceName>
     <majorEventType>5</majorEventType>
     <subEventType>75</subEventType>
-    <name>Alisher Karimov</name>
+    <name>${testEmployee?.name || "Test Foydalanuvchi"}</name>
     <cardNo>00481234</cardNo>
-    <reportChannel>0</reportChannel>
     <cardType>normalCard</cardType>
     <attendanceStatus>checkIn</attendanceStatus>
     <door>1</door>
     <doorNo>1</doorNo>
-    <employeeNoString>1001</employeeNoString>
-    <serialNo>20</serialNo>
+    <employeeNoString>${testEmployee?.employeeNo || "9999"}</employeeNoString>
     <userType>normal</userType>
     <currentVerifyMode>face</currentVerifyMode>
   </AccessControllerEvent>
@@ -173,8 +168,45 @@ export async function registerRoutes(
       contentType: "application/xml (test)",
     });
 
-    broadcast({ type: "new_event", event });
+    if (event) broadcast({ type: "new_event", event });
     res.json({ success: true, event });
+  });
+
+  app.get("/api/employees", async (_req: Request, res: Response) => {
+    const employees = await storage.getEmployees();
+    res.json(employees);
+  });
+
+  app.post("/api/employees", async (req: Request, res: Response) => {
+    const parsed = insertEmployeeSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const existing = await storage.getEmployeeByNo(parsed.data.employeeNo);
+    if (existing) {
+      return res.status(409).json({ error: "Bu Employee ID allaqachon mavjud" });
+    }
+    const employee = await storage.addEmployee(parsed.data);
+    broadcast({ type: "employee_added", employee });
+    res.status(201).json(employee);
+  });
+
+  app.put("/api/employees/:id", async (req: Request, res: Response) => {
+    const parsed = insertEmployeeSchema.partial().safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.flatten() });
+    }
+    const employee = await storage.updateEmployee(req.params.id, parsed.data);
+    if (!employee) return res.status(404).json({ error: "Topilmadi" });
+    broadcast({ type: "employee_updated", employee });
+    res.json(employee);
+  });
+
+  app.delete("/api/employees/:id", async (req: Request, res: Response) => {
+    const ok = await storage.deleteEmployee(req.params.id);
+    if (!ok) return res.status(404).json({ error: "Topilmadi" });
+    broadcast({ type: "employee_deleted", id: req.params.id });
+    res.json({ success: true });
   });
 
   return httpServer;
