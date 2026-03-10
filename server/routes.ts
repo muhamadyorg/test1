@@ -159,28 +159,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const parsed = parseHikvisionBody(rawBody, contentType);
 
-      // Log key fields for debugging
       const status = (parsed.attendanceStatus || "").toLowerCase();
+      const verifyMode = (parsed.verifyMode || "").toLowerCase();
       log(
-        `Event from ${req.ip} | sub=${parsed.subEventType || "-"} | emp=${parsed.employeeNo || "-"} | name=${parsed.name || "-"} | status=${status || "-"} | ${rawBody.length}B`,
+        `Event ${req.ip} | sub=${parsed.subEventType||"-"} | emp=${parsed.employeeNo||"-"} | verify=${verifyMode||"-"} | status=${status||"-"} | ${rawBody.length}B`,
         "hikvision"
       );
 
-      // Save if: attendance button pressed (checkIn/checkOut) OR face/card/fp verified (verifyMode set)
-      // Reject pure system events with no person data (no verifyMode, no status, no employee, no name)
-      const verifyMode = (parsed.verifyMode || "").toLowerCase();
-      const validStatuses = ["checkin", "checkout", "breakin", "breakout", "normal", "overtime", "other"];
-      const hasStatus = validStatuses.includes(status);
-      const hasVerify = verifyMode.length > 0;
-      const hasPerson = !!(parsed.employeeNo || parsed.name);
-
-      if (!hasStatus && !hasVerify && !hasPerson) {
-        const reason = `attendanceStatus="${status||"bo'sh"}", verifyMode="${verifyMode||"bo'sh"}", employeeNo="${parsed.employeeNo||"yo'q"}", name="${parsed.name||"yo'q"}"`;
-        log(`Ignored: ${reason}`, "hikvision");
-        addDiag({ time: new Date().toISOString(), ip: req.ip || "", contentType, bodySize: rawBody.length, rawBody: rawBody.slice(0, 2000), parsed: parsed as Record<string, string>, decision: "ignored", reason });
-        return res.status(200).send("OK");
-      }
-
+      // No filtering — save everything, dedup handles duplicates
       const event = await storage.addEvent({
         ...parsed,
         rawBody: rawBody || "(empty body)",
@@ -189,12 +175,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (event) {
         broadcast({ type: "new_event", event });
-        const reason = `Saqlandi: ${event.resolvedName || event.name || event.employeeNo || "Noma'lum"} — status=${event.attendanceStatus||"yo'q"}, verify=${event.verifyMode||"yo'q"}`;
+        const who = event.resolvedName || event.name || event.employeeNo || "Noma'lum";
+        const reason = `Saqlandi: ${who} | verify=${event.verifyMode||"-"} | status=${event.attendanceStatus||"-"} | sub=${event.subEventType||"-"}`;
         log(reason, "hikvision");
         addDiag({ time: new Date().toISOString(), ip: req.ip || "", contentType, bodySize: rawBody.length, rawBody: rawBody.slice(0, 2000), parsed: parsed as Record<string, string>, decision: "saved", reason });
       } else {
-        const reason = `Dublikat (5s): emp=${parsed.employeeNo||"?"}, status=${status||"?"}`;
-        log(`Duplicate skipped (${parsed.employeeNo || "unknown"})`, "hikvision");
+        const reason = `Dublikat (5s): emp=${parsed.employeeNo||"?"} | sub=${parsed.subEventType||"?"}`;
+        log(`Duplicate skipped`, "hikvision");
         addDiag({ time: new Date().toISOString(), ip: req.ip || "", contentType, bodySize: rawBody.length, rawBody: rawBody.slice(0, 2000), parsed: parsed as Record<string, string>, decision: "duplicate", reason });
       }
 
@@ -370,11 +357,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 </div>
 
 <h2>📋 Filtr qoidalari (hozirgi holat)</h2>
-<div class="rule">✅ <b>Saqlanadi</b> — <code>attendanceStatus</code> = checkIn / checkOut / breakIn / breakOut / normal / overtime / other</div>
-<div class="rule">✅ <b>Saqlanadi</b> — <code>verifyMode</code> (currentVerifyMode) bo'sh emas (face/card/fp)</div>
-<div class="rule">✅ <b>Saqlanadi</b> — <code>employeeNo</code> yoki <code>name</code> bo'lsa</div>
-<div class="rule">⚠️ <b>Dublikat</b> — bir xil hodisa 5 soniya ichida qayta kelsa</div>
-<div class="rule">❌ <b>Ignore</b> — yuqoridagi shartlardan hech biri bajarilmasa (disk alarm, tarmoq, heartbeat...)</div>
+<div class="rule">✅ <b>Barcha kelgan so'rovlar saqlanadi</b> — hech qanday filtr yo'q</div>
+<div class="rule">⚠️ <b>Dublikat</b> — bir xil hodisa 5 soniya ichida qayta kelsa (bir martadan ko'p hisoblanmaydi)</div>
 
 <h2>📡 Xodimlar ro'yxati (${employees.length} ta)</h2>
 ${employees.length ? `<div style="background:#0f172a;border:1px solid #1e293b;border-radius:8px;padding:12px;font-size:13px">
