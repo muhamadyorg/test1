@@ -11,41 +11,67 @@ function extractXml(xml: string, field: string): string {
   return m ? m[1].trim() : "";
 }
 
+function extractXmlFromMultipart(rawBody: string): string {
+  // Find XML portion inside multipart/form-data body
+  const xmlStart = rawBody.indexOf("<?xml");
+  if (xmlStart === -1) {
+    // Try without XML declaration
+    const tagStart = rawBody.indexOf("<EventNotificationAlert");
+    if (tagStart === -1) return "";
+    const tagEnd = rawBody.indexOf("</EventNotificationAlert>");
+    if (tagEnd === -1) return rawBody.slice(tagStart);
+    return rawBody.slice(tagStart, tagEnd + "</EventNotificationAlert>".length);
+  }
+  // Find end of XML (stop at binary/boundary data)
+  const xmlEnd = rawBody.indexOf("</EventNotificationAlert>");
+  if (xmlEnd === -1) return rawBody.slice(xmlStart);
+  return rawBody.slice(xmlStart, xmlEnd + "</EventNotificationAlert>".length);
+}
+
 function parseHikvisionBody(rawBody: string, contentType: string) {
+  // If multipart, extract the XML part first
+  let bodyToParse = rawBody;
+  if (contentType.includes("multipart")) {
+    bodyToParse = extractXmlFromMultipart(rawBody);
+  }
+
   const isXml =
     contentType.includes("xml") ||
+    contentType.includes("multipart") ||
+    bodyToParse.trimStart().startsWith("<?xml") ||
+    bodyToParse.trimStart().startsWith("<") ||
     rawBody.trimStart().startsWith("<?xml") ||
-    rawBody.trimStart().startsWith("<");
+    rawBody.includes("<EventNotificationAlert");
 
   if (isXml) {
-    // Try multiple field names for employee number
+    const x = bodyToParse || rawBody;
     const employeeNo =
-      extractXml(rawBody, "employeeNoString") ||
-      extractXml(rawBody, "employeeNo") ||
-      extractXml(rawBody, "empNo") ||
-      extractXml(rawBody, "userID") ||
-      extractXml(rawBody, "userid") ||
-      extractXml(rawBody, "UserID");
+      extractXml(x, "employeeNoString") ||
+      extractXml(x, "employeeNo") ||
+      extractXml(x, "empNo") ||
+      extractXml(x, "userID") ||
+      extractXml(x, "userid") ||
+      extractXml(x, "UserID");
 
     return {
-      ipAddress: extractXml(rawBody, "ipAddress"),
-      macAddress: extractXml(rawBody, "macAddress"),
-      deviceName: extractXml(rawBody, "deviceName"),
-      eventType: extractXml(rawBody, "eventType"),
-      eventState: extractXml(rawBody, "eventState"),
-      eventDescription: extractXml(rawBody, "eventDescription"),
-      dateTime: extractXml(rawBody, "dateTime"),
-      name: extractXml(rawBody, "name"),
-      cardNo: extractXml(rawBody, "cardNo"),
+      ipAddress: extractXml(x, "ipAddress"),
+      macAddress: extractXml(x, "macAddress"),
+      deviceName: extractXml(x, "deviceName"),
+      eventType: extractXml(x, "eventType"),
+      eventState: extractXml(x, "eventState"),
+      eventDescription: extractXml(x, "eventDescription"),
+      dateTime: extractXml(x, "dateTime"),
+      name: extractXml(x, "name"),
+      cardNo: extractXml(x, "cardNo"),
       employeeNo,
-      cardType: extractXml(rawBody, "cardType"),
-      attendanceStatus: extractXml(rawBody, "attendanceStatus"),
-      door: extractXml(rawBody, "door"),
-      doorNo: extractXml(rawBody, "doorNo"),
-      verifyMode: extractXml(rawBody, "currentVerifyMode"),
-      majorEventType: extractXml(rawBody, "majorEventType"),
-      subEventType: extractXml(rawBody, "subEventType"),
-      userType: extractXml(rawBody, "userType"),
+      cardType: extractXml(x, "cardType"),
+      attendanceStatus: extractXml(x, "attendanceStatus"),
+      door: extractXml(x, "door"),
+      doorNo: extractXml(x, "doorNo"),
+      verifyMode: extractXml(x, "currentVerifyMode"),
+      majorEventType: extractXml(x, "majorEventType"),
+      subEventType: extractXml(x, "subEventType"),
+      userType: extractXml(x, "userType"),
     };
   }
 
