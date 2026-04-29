@@ -1,36 +1,62 @@
-# Hikvision Event Listener
+# Shop Catalog — Workspace
 
-Real-time HTTP event listener for Hikvision DS-K1T343EFWX Face Recognition Terminal.
+## Overview
+
+Ierarxik onlayn katalog boshqaruv tizimi. Admin ilovasi va foydalanuvchi ko'rish interfeysi.
+
+## Stack
+
+- **Monorepo tool**: pnpm workspaces
+- **Node.js version**: 24
+- **Package manager**: pnpm
+- **TypeScript version**: 5.9
+- **Frontend**: React + Vite + Tailwind CSS + shadcn/ui
+- **API framework**: Express 5
+- **Database**: PostgreSQL + Drizzle ORM
+- **Validation**: Zod (`zod/v4`), `drizzle-zod`
+- **API codegen**: Orval (from OpenAPI spec)
+- **Build**: esbuild (CJS bundle)
+- **Auth**: Session-based (express-session + bcrypt)
+- **Real-time**: WebSocket (ws library)
+- **PWA**: manifest.json + service worker
 
 ## Features
-- Receives HTTP POST events from Hikvision devices at `/api/events`
-- Parses both XML and JSON event formats
-- Real-time WebSocket push to frontend
-- Event dashboard with statistics, expandable event cards, raw body viewer
-- Built-in test event generator
-- Setup guide page
 
-## Architecture
-- **Backend**: Express.js + WebSocket (ws)
-- **Frontend**: React + TanStack Query + WebSocket client
-- **Storage**: In-memory (MemStorage, last 200 events)
-- **Port**: 5000
+- Ierarxik kataloglar (cheksiz ichma-ich papkalar)
+- Mahsulotlar: product_id, nom, narx, rasm, dinamik atributlar
+- Admin: katalog/mahsulot yaratish, tahrirlash, ko'chirish, o'chirish
+- Bulk select va delete/move
+- 3 xil ko'rinish hajmi (kichik/o'rta/katta)
+- Foydalanuvchi boshqaruvi (admin/user rollari)
+- Dark mode default (toggle mavjud)
+- Real-time yangilanishlar (WebSocket)
+- PWA qo'llab-quvvatlash
 
-## API Endpoints
-- `POST /api/events` — Hikvision sends events here
-- `GET /api/events` — Get all stored events
-- `DELETE /api/events` — Clear all events
-- `POST /api/events/test` — Send a test event
+## Default Credentials
 
-## Hikvision Device Configuration
-In device web UI: System and Maintenance → Network → Network Service → HTTP Listening:
-- Event Alarm IP/Domain Name: `<your-server-ip>`
-- URL: `/api/events`
-- Port: `5000`
-- Protocol: `HTTP`
+- **Admin**: `admin` / `admin123`
+- **User**: `user1` / `user123`
 
-## Tech Stack
-- React, TypeScript, Vite (frontend)
-- Express, tsx (backend)
-- ws (WebSocket)
-- TanStack Query, wouter, shadcn/ui, Tailwind CSS
+## Key Commands
+
+- `pnpm run typecheck` — full typecheck across all packages
+- `pnpm run build` — typecheck + build all packages
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from OpenAPI spec
+- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+
+## Deploy
+
+```bash
+# To'liq deploy:
+sudo REPO_URL=https://github.com/your-username/repo.git DOMAIN=yourdomain.com bash deploy.sh
+
+# SSL bilan:
+sudo REPO_URL=... DOMAIN=... USE_SSL=true bash deploy.sh
+```
+
+## Artifacts
+
+- `artifacts/shop-catalog` — React frontend (previewPath: `/`)
+- `artifacts/api-server` — Express API + WebSocket (previewPath: `/api`, `/ws`)
+
+See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details.
